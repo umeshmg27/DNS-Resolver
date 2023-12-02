@@ -48,3 +48,26 @@ func DecodeHeader(data []byte) (*Header, error) {
 	}, nil
 
 }
+
+func VerifyHeader(responseHeader *Header, reqId uint16) error {
+	if responseHeader.ID != reqId {
+
+		return fmt.Errorf("\n\n Response and request header doesn't match")
+	}
+
+	switch responseHeader.Flags & 0b1111 {
+	case 1:
+		return fmt.Errorf("There was a format error with the Query")
+
+	case 2:
+		return fmt.Errorf("Sever failure - server was unable to process the query.")
+
+	case 3:
+		return fmt.Errorf("This domain name does not exist.")
+	}
+
+	if responseHeader.AnswerRecordCount+responseHeader.AuthorityRecordCount+responseHeader.AdditionalRecordCount == 0 {
+		return fmt.Errorf("No records available in the DNS records")
+	}
+
+}

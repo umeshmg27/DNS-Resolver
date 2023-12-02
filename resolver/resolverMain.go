@@ -1,9 +1,14 @@
 package resolver
 
 import (
+	"errors"
 	"fmt"
 	"net"
 )
+
+// Global variables to avoid passing variables around.
+const udpMaxPacketSize = 512
+const headerSize = 12
 
 // DNSMessage - Complete message
 type DNSMessage struct {
@@ -14,7 +19,104 @@ type DNSMessage struct {
 	Additional []ResourceRecord
 }
 
-func HandleDNSRequest(conn *net.UDPConn) error {
+type nameServers []string
+
+// Push adds an item to the top of the stack
+func (s *nameServers) Push(item string) {
+	*s = append(*s, item)
+}
+
+// Pop removes the item from the top of the stack and returns it
+func (s *nameServers) Pop() (string, error) {
+	if len(*s) == 0 {
+		return "", errors.New("pop from empty stack")
+	}
+
+	index := len(*s) - 1   // Get the index of the top most element.
+	element := (*s)[index] // Index into the slice and obtain the element.
+	*s = (*s)[:index]      // Remove it from the stack by slicing it off.
+	return element, nil
+}
+
+func ConstructDnsMessage(domainName string, nameServer string) ([]byte, uint16, error) {
+	header := Header{
+		ID:                    generateRandomNumber(),
+		Flags:                 256,
+		QuestionCount:         1,
+		AnswerRecordCount:     0,
+		AuthorityRecordCount:  0,
+		AdditionalRecordCount: 0,
+	}
+	question := Question{
+		Name:  domainName,
+		Type:  1,
+		Class: 1,
+	}
+	headerEncoded := header.Encode()
+	questionEncoded, err := question.EncodeQuestion()
+	if err != nil {
+		return nil, 0, err
+	}
+	QueryMessage := append(headerEncoded, questionEncoded...)
+	return QueryMessage, header.ID, nil
+}
+
+func HandleDNSRequest(domainName string, nameServer string) (string, error) {
+
+	queryMessage, reqID, err := ConstructDnsMessage(domainName, nameServer)
+	if err != nil {
+		return "", err
+	}
+
+	visitedNS := make(map[string]bool)
+	NSInQueue := nameServers{nameServer}
+
+	for len(NSInQueue) > 0 {
+		curNsIp, err := NSInQueue.Pop()
+		if err != nil {
+			return "", err
+		}
+
+		conn, err := net.Dial("udp", fmt.Sprintf("%s:53", curNsIp))
+		if err != nil {
+			return "", err
+		}
+		defer conn.Close()
+
+		_, err = conn.Write(queryMessage)
+		if err != nil {
+			return "", err
+		}
+
+		buffer := make([]byte, udpMaxPacketSize)
+		_, err = conn.Read(buffer)
+		if err != nil {
+			return "", err
+		}
+
+		bufferPosition := 0
+		responseHeader, err := DecodeHeader(buffer)
+		if err != nil {
+			return "", err
+		}
+		err = VerifyHeader(responseHeader, reqID)
+		if err != nil {
+			fmt.Printf(err.Error())
+			return "", err
+		}
+
+		bufferPosition += headerSize
+		responseBody, err := DecodeQuestion(buffer[12:])
+		if err != nil || responseBody.Name != domainName {
+			return "", err
+		}
+		bufferPosition += len(responseBody.Name)
+
+	}
+
+}
+
+func ProcessDNSRequest(conn *net.UDPConn) error {
 	buffer := make([]byte, 512) // Max size for a DNS message
 	n, addr, err := conn.ReadFromUDP(buffer)
 	if err != nil {
@@ -46,7 +148,7 @@ func HandleDNSRequest(conn *net.UDPConn) error {
 		return fmt.Errorf("failed to construct response: %v", err)
 	}
 
-	fmt.Printf("\nresponse %+v \n", string(response))
+	fmt.Printf("\nresponse %+v \n", response)
 
 	// Send the response back to the client
 	_, err = conn.WriteToUDP(response, addr)
@@ -87,30 +189,6 @@ func constructResponse(header *Header, question *Question, ip string) ([]byte, e
 	// Combine the header, question, and answer into the final response
 	response := append(headerBuffer, questionBuffer...)
 	response = append(response, answerBuffer...)
-
-	return response, nil
-}
-
-func forwardQuery(buffer []byte) ([]byte, error) {
-	// Forward the query to an external DNS server
-	// This is a simplified example
-	serverAddr := "8.8.8.8:53"
-	conn, err := net.Dial("udp", serverAddr)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	_, err = conn.Write(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	response := make([]byte, 512)
-	_, err = conn.Read(response)
-	if err != nil {
-		return nil, err
-	}
 
 	return response, nil
 }
