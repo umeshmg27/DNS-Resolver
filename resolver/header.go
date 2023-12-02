@@ -1,5 +1,7 @@
 package resolver
 
+import "fmt"
+
 // Header - DNS query header conssits of the following Data
 type Header struct {
 	ID                    uint16
@@ -32,6 +34,17 @@ func (h *Header) Encode() []byte {
 }
 
 func DecodeHeader(data []byte) (*Header, error) {
-	// Convert bytes into a Header struct
-	return nil, nil
+	if len(data) < 12 {
+		return nil, fmt.Errorf("header data is too short")
+	}
+
+	return &Header{
+		ID:                    uint16(data[0])<<8 | uint16(data[1]),
+		Flags:                 uint16(data[2])<<8 | uint16(data[3]),
+		QuestionCount:         uint16(data[4])<<8 | uint16(data[5]),
+		AnswerRecordCount:     uint16(data[6])<<8 | uint16(data[7]),
+		AuthorityRecordCount:  uint16(data[8])<<8 | uint16(data[9]),
+		AdditionalRecordCount: uint16(data[10])<<8 | uint16(data[11]),
+	}, nil
+
 }
