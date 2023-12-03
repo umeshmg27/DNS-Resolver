@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 )
@@ -38,39 +39,15 @@ func (q *Question) EncodeQuestion() ([]byte, error) {
 	return buffer, nil
 }
 
-func DecodeQuestion(data []byte) (*Question, error) {
-	var (
-		name strings.Builder
-		i    int
-		qlen = len(data)
-	)
-
-	// Decode the domain name
-	for i < qlen {
-		length := int(data[i])
-		i++
-		if length == 0 {
-			break
-		}
-		if length > 63 || i+length > qlen {
-			return nil, fmt.Errorf("invalid domain name label in question")
-		}
-		name.WriteString(string(data[i : i+length]))
-		i += length
-		if i < qlen {
-			name.WriteString(".")
-		}
+func DecodeQuestion(buffer []byte, startPosition int) (*Question, int, error) {
+	name, size := decodeDomainName(buffer, startPosition)
+	offset := startPosition + size
+	body := Question{
+		Name:  name,
+		Type:  binary.BigEndian.Uint16(buffer[offset : offset+2]),
+		Class: binary.BigEndian.Uint16(buffer[offset+2 : offset+4]),
 	}
 
-	if i+4 > qlen { // 2 bytes for Type and 2 bytes for Class
-		return nil, fmt.Errorf("insufficient data for question type and class")
-	}
-
-	question := &Question{
-		Name:  name.String(),
-		Type:  uint16(data[i])<<8 | uint16(data[i+1]),
-		Class: uint16(data[i+2])<<8 | uint16(data[i+3]),
-	}
-
-	return question, nil
+	// Return size of body since it varies with domain name length.
+	return &body, size + 4, nil
 }

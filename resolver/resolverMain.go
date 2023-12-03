@@ -112,12 +112,12 @@ func HandleDNSRequest(domainName string, nameServer string) (string, error) {
 		}
 		fmt.Printf("\n\n size %+v", headerSize)
 		bufferPosition += headerSize
-		responseBody, err := DecodeQuestion(buffer[12:])
-		if err != nil || responseBody.Name != domainName+"." {
+		responseBody, size, err := DecodeQuestion(buffer, bufferPosition)
+		if err != nil || responseBody.Name != domainName {
 			fmt.Printf("\n\n responseBody %+v domain %+v", responseBody.Name[:], domainName)
 			return "", err
 		}
-		bufferPosition += len(responseBody.Name)
+		bufferPosition += size
 		fmt.Printf("\n\n responseBody %+v", responseBody)
 		for i := 0; i < int(responseHeader.AnswerRecordCount); i++ {
 			answer, _, err := decodeResource(buffer, bufferPosition)
