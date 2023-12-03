@@ -73,8 +73,65 @@ func EncodeDomainName(domain string) ([]byte, error) {
 	return buffer, nil
 }
 
+func decodeDomainName(buffer []byte, offset int) (string, int) {
+	s := ""
+	idx := offset
+
+	for {
+		length := int(buffer[idx])
+		// length 192 indicates a pointer
+		if length == 192 {
+			// pointer to a string, we discard the length and simply increment idx by 2 to jump over the pointer
+			suffix, _ := decodeDomainName(buffer, int(buffer[idx+1]))
+			s += suffix
+			idx += 2
+			break
+		} else {
+			name := buffer[idx+1 : idx+1+length]
+			idx += 1 + length
+			if buffer[idx] == 0x00 {
+				s += string(name)
+				idx++
+				break
+			} else {
+				s += string(name) + "."
+			}
+		}
+	}
+
+	// Second return value indicates by how much buffer pointer (offset) should be incremented.
+	return s, idx - offset
+}
+
+func decodeNSrData(buffer, rdata []byte) string {
+	s := ""
+	idx := 0
+	for {
+		length := int(rdata[idx])
+		// length 192 indicates a pointer
+		if length == 192 {
+			// pointer to a string in the original response buffer
+			suffix, _ := decodeDomainName(buffer, int(rdata[idx+1]))
+			s += suffix
+			idx += 2
+			break
+		} else {
+			name := rdata[idx+1 : idx+1+length]
+			idx += 1 + length
+			if rdata[idx] == 0x00 {
+				s += string(name)
+				idx++
+				break
+			} else {
+				s += string(name) + "."
+			}
+		}
+	}
+	return s
+}
+
 // Decode Resource
-func decodeResource(buffer []byte, startPosition int) (*Resource, int, error) {
+func decodeResource(buffer []byte, startPosition int) (*ResourceRecord, int, error) {
 	// Could either be a pointer, inlined name or combination.
 	name, size := decodeDomainName(buffer, startPosition)
 	offset := startPosition + size
