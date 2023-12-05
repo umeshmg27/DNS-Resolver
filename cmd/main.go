@@ -14,10 +14,10 @@ func main() {
 	// fmt.Printf("\n\n port %+v", port)
 	domain := flag.String("domain", "google.com", "Domain name to find the IP address")
 	flag.Parse()
-	nameServer := flag.String("nameServer", "8.8.8.8", "Domain name to find the IP address")
+	nameServer := flag.String("nameServer", "192.168.6.181", "Domain name to find the IP address")
 	flag.Parse()
-
-	result, _, err := resolver.HandleDNSRequest(*domain, *nameServer)
+	result := []string{}
+	result, _, err := resolver.HandleDNSRequest(*domain, result, *nameServer)
 	if err != nil {
 		fmt.Printf("\n err %+v", err)
 	}

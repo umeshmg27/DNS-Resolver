@@ -43,7 +43,7 @@ func ConstructDnsMessage(domainName string, nameServer string) ([]byte, uint16, 
 	return QueryMessage, header.ID, nil
 }
 
-func HandleDNSRequest(domainName string, nameServer string) ([]string, string, error) {
+func HandleDNSRequest(domainName string, answerRecordData []string, nameServer string) ([]string, string, error) {
 
 	queryMessage, reqID, err := ConstructDnsMessage(domainName, nameServer)
 	if err != nil {
@@ -55,7 +55,7 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 	for len(NSInQueue) > 0 {
 		curNsIp := NSInQueue[0]
 		NSInQueue = NSInQueue[1:]
-
+		fmt.Printf("\n Querying for %+s in %s", domainName, curNsIp)
 		conn, err := net.Dial("udp", fmt.Sprintf("%s:53", curNsIp))
 		if err != nil {
 			return nil, "", err
@@ -90,7 +90,7 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 			return nil, "", err
 		}
 		bufferPosition += size
-		answerRecordData := []string{}
+
 		for i := 0; i < int(responseHeader.AnswerRecordCount); i++ {
 			answer, _, err := DecodeResource(buffer, bufferPosition)
 			if err != nil {
@@ -99,10 +99,11 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 			answerRecordData = append(answerRecordData, fmt.Sprintf("%d.%d.%d.%d", answer.Data[0], answer.Data[1], answer.Data[2], answer.Data[3]))
 		}
 		if len(answerRecordData) > 0 {
-			return answerRecordData, answerRecordData[0], nil
+			return answerRecordData, "", nil
 		}
 
 		authorityRecords := make([]*ResourceRecord, 0)
+
 		for i := 0; i < int(responseHeader.AuthorityRecordCount); i++ {
 			authority, size, err := DecodeResource(buffer, bufferPosition)
 			if err != nil {
@@ -135,14 +136,16 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 
 		// Resolve the NS data
 		if len(NSInQueue) == 0 && len(authorityRecords) > 0 {
-			fmt.Println("Name Server IP.")
-			_, nameServer, err := HandleDNSRequest(string(authorityRecords[0].Data), "8.8.8.8")
+			_, nameServer, err := HandleDNSRequest(fmt.Sprintf("%d.%d.%d.%d", authorityRecords[0].Data[0], authorityRecords[0].Data[1], authorityRecords[0].Data[2], authorityRecords[0].Data[3]), answerRecordData, "192.168.6.181")
 			if err != nil {
 				return nil, "", err
 			}
 			NSInQueue = append(NSInQueue, nameServer)
 		}
 
+	}
+	if len(answerRecordData) > 0 {
+		return answerRecordData, answerRecordData[0], nil
 	}
 	return nil, "", fmt.Errorf("failed to resolve this domain name")
 

@@ -147,7 +147,7 @@ func DecodeNameServerData(buffer, rdata []byte) (string, error) {
 			name := rdata[idx+1 : idx+1+length]
 			idx += 1 + length
 
-			s.Write(name) // Write the name part to the builder
+			s.WriteString(string(name)) // Write the name part to the builder
 
 			if rdata[idx] == 0x00 {
 				idx++ // Move past the null byte
