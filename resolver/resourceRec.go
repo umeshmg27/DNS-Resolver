@@ -73,91 +73,141 @@ func EncodeDomainName(domain string) ([]byte, error) {
 	return buffer, nil
 }
 
-func decodeDomainName(buffer []byte, offset int) (string, int) {
-	s := ""
+// DecodeDomainName - Decodes the domain nmae from the given buffer
+func DecodeDomainName(buffer []byte, offset int) (string, int, error) {
+	var s strings.Builder
 	idx := offset
+	seen := make(map[int]bool)
 
 	for {
+		if idx >= len(buffer) {
+			return "", 0, fmt.Errorf("buffer too short")
+		}
+
 		length := int(buffer[idx])
-		// length 192 indicates a pointer
-		if length == 192 {
-			// pointer to a string, we discard the length and simply increment idx by 2 to jump over the pointer
-			suffix, _ := decodeDomainName(buffer, int(buffer[idx+1]))
-			s += suffix
+		if length == 192 { // Pointer
+			if seen[idx] {
+				return "", 0, fmt.Errorf("circular reference detected")
+			}
+			seen[idx] = true
+
+			suffix, _, err := DecodeDomainName(buffer, int(buffer[idx+1]))
+			if err != nil {
+				return "", 0, err
+			}
+			s.WriteString(suffix)
 			idx += 2
 			break
 		} else {
+			if idx+1+length > len(buffer) {
+				return "", 0, fmt.Errorf("buffer too short for expected length")
+			}
+
 			name := buffer[idx+1 : idx+1+length]
 			idx += 1 + length
+
+			s.Write(name) // Write the name part to the builder
+
+			// Check for the end of the string or add a dot
 			if buffer[idx] == 0x00 {
-				s += string(name)
-				idx++
+				idx++ // Move past the null byte
 				break
 			} else {
-				s += string(name) + "."
+				s.WriteByte('.') // Add a dot for the next part of the domain
 			}
 		}
 	}
-
-	// Second return value indicates by how much buffer pointer (offset) should be incremented.
-	return s, idx - offset
+	return s.String(), idx - offset, nil
 }
 
-func decodeNSrData(buffer, rdata []byte) string {
-	s := ""
+// DecodeNameServerData - Decodes the Name server data in the given buffer
+func DecodeNameServerData(buffer, rdata []byte) (string, error) {
+	var s strings.Builder
 	idx := 0
+
 	for {
+		if idx >= len(rdata) {
+			return "", fmt.Errorf("rdata too short")
+		}
+
 		length := int(rdata[idx])
-		// length 192 indicates a pointer
-		if length == 192 {
-			// pointer to a string in the original response buffer
-			suffix, _ := decodeDomainName(buffer, int(rdata[idx+1]))
-			s += suffix
+		if length == 192 { // Pointer
+			suffix, _, err := DecodeDomainName(buffer, int(rdata[idx+1]))
+			if err != nil {
+				return "", fmt.Errorf("failed to decode domain name: %w", err)
+			}
+			s.WriteString(suffix)
 			idx += 2
 			break
 		} else {
+			if idx+1+length > len(rdata) {
+				return "", fmt.Errorf("rdata too short for expected length")
+			}
+
 			name := rdata[idx+1 : idx+1+length]
 			idx += 1 + length
+
+			s.Write(name) // Write the name part to the builder
+
 			if rdata[idx] == 0x00 {
-				s += string(name)
-				idx++
+				idx++ // Move past the null byte
 				break
 			} else {
-				s += string(name) + "."
+				s.WriteByte('.') // Add a dot for the next part of the domain
 			}
 		}
 	}
-	return s
+	return s.String(), nil
 }
 
-// Decode Resource
-func decodeResource(buffer []byte, startPosition int) (*ResourceRecord, int, error) {
-	// Could either be a pointer, inlined name or combination.
-	name, size := decodeDomainName(buffer, startPosition)
+// DecodeResource - Decodes the resource Data and return Decoded ResourceRecord
+func DecodeResource(buffer []byte, startPosition int) (*ResourceRecord, int, error) {
+	// Decode the domain name, handling pointers and inline names.
+	name, size, err := DecodeDomainName(buffer, startPosition)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to decode domain name: %w", err)
+	}
 	offset := startPosition + size
 
+	// Ensure buffer has enough data for the fixed-length fields.
+	if offset+10 > len(buffer) {
+		return nil, 0, fmt.Errorf("buffer too short for resource record header")
+	}
+
+	// Extracting the resource record fields.
 	qType := binary.BigEndian.Uint16(buffer[offset : offset+2])
 	qClass := binary.BigEndian.Uint16(buffer[offset+2 : 4+offset])
 	ttl := binary.BigEndian.Uint32(buffer[offset+4 : offset+8])
 	rdLength := binary.BigEndian.Uint16(buffer[8+offset : 10+offset])
 
-	rData := []byte{}
+	// Check if the buffer contains enough data for rData.
+	if offset+10+int(rdLength) > len(buffer) {
+		return nil, 0, fmt.Errorf("buffer too short for rData")
+	}
+
+	// Decode rData based on qType and qClass.
+	var rData []byte
 	if qType == 2 && qClass == 1 {
-		rData = []byte(decodeNSrData(buffer, buffer[10+offset:10+offset+int(rdLength)]))
+		decodedRData, err := DecodeNameServerData(buffer, buffer[10+offset:10+offset+int(rdLength)])
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to decode name server data: %w", err)
+		}
+		rData = []byte(decodedRData)
 	} else {
 		rData = buffer[10+offset : 10+uint16(offset)+rdLength]
 	}
-	resource := ResourceRecord{
 
-		name,
-		qType,
-		qClass,
-		ttl,
-		rdLength,
-		rData,
+	// Creating the ResourceRecord struct.
+	resource := ResourceRecord{
+		Name:     name,
+		Type:     qType,
+		Class:    qClass,
+		TTL:      ttl,
+		rdLEngth: rdLength,
+		Data:     rData,
 	}
 
-	// Return length of the section so that caller can update buffer position.
+	// Calculate the end position of the resource record in the buffer.
 	endPosition := offset + 10 + int(rdLength)
 	return &resource, endPosition - startPosition, nil
 }

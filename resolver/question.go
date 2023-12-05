@@ -40,7 +40,10 @@ func (q *Question) EncodeQuestion() ([]byte, error) {
 }
 
 func DecodeQuestion(buffer []byte, startPosition int) (*Question, int, error) {
-	name, size := decodeDomainName(buffer, startPosition)
+	name, size, _ := DecodeDomainName(buffer, startPosition)
+	// if err != nil {
+	// 	return nil, 0, err
+	// }
 	offset := startPosition + size
 	body := Question{
 		Name:  name,

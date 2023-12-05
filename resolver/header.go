@@ -55,7 +55,7 @@ func VerifyHeader(responseHeader *Header, reqId uint16) error {
 		return fmt.Errorf("\n\n Response and request header doesn't match")
 	}
 
-	fmt.Printf("\n\n responseHeader.Flags %+v", responseHeader.Flags&0b1111)
+	fmt.Printf("\n\n responseHeader.Flags %+v \n", responseHeader)
 
 	switch responseHeader.Flags & 0b1111 {
 	case 1:
