@@ -19,7 +19,7 @@ func main() {
 
 	result, _, err := resolver.HandleDNSRequest(*domain, *nameServer)
 	if err != nil {
-		fmt.Printf("\n\n err %+v", err)
+		fmt.Printf("\n err %+v", err)
 	}
-	fmt.Printf("\n\n result %+v", result)
+	fmt.Printf("\n DNS output %+v", result)
 }

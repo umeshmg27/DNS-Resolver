@@ -1,7 +1,6 @@
 package resolver
 
 import (
-	"errors"
 	"fmt"
 	"net"
 )
@@ -20,23 +19,6 @@ type DNSMessage struct {
 }
 
 type nameServers []string
-
-// Push adds an item to the top of the stack
-func (s *nameServers) Push(item string) {
-	*s = append(*s, item)
-}
-
-// Pop removes the item from the top of the stack and returns it
-func (s *nameServers) Pop() (string, error) {
-	if len(*s) == 0 {
-		return "", errors.New("pop from empty stack")
-	}
-
-	index := len(*s) - 1   // Get the index of the top most element.
-	element := (*s)[index] // Index into the slice and obtain the element.
-	*s = (*s)[:index]      // Remove it from the stack by slicing it off.
-	return element, nil
-}
 
 func ConstructDnsMessage(domainName string, nameServer string) ([]byte, uint16, error) {
 	header := Header{
@@ -71,10 +53,8 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 	NSInQueue := nameServers{nameServer}
 
 	for len(NSInQueue) > 0 {
-		curNsIp, err := NSInQueue.Pop()
-		if err != nil {
-			return nil, "", err
-		}
+		curNsIp := NSInQueue[0]
+		NSInQueue = NSInQueue[1:]
 
 		conn, err := net.Dial("udp", fmt.Sprintf("%s:53", curNsIp))
 		if err != nil {
@@ -116,7 +96,6 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 			if err != nil {
 				return nil, "", err
 			}
-			fmt.Printf("\n answer %+v \n", answer)
 			answerRecordData = append(answerRecordData, fmt.Sprintf("%d.%d.%d.%d", answer.Data[0], answer.Data[1], answer.Data[2], answer.Data[3]))
 		}
 		if len(answerRecordData) > 0 {
@@ -143,28 +122,28 @@ func HandleDNSRequest(domainName string, nameServer string) ([]string, string, e
 			bufferPosition += size
 		}
 		for i := range additionalRecords {
-			// We have ipv4 address for server that can help resolve the query.
+			// Get ip4 address for the query
 			ar := additionalRecords[i]
 			if ar.Type == 1 && ar.Class == 1 && ar.rdLEngth == 4 {
 				newIP := fmt.Sprintf("%d.%d.%d.%d", ar.Data[0], ar.Data[1], ar.Data[2], ar.Data[3])
 				if _, exists := visitedNS[newIP]; !exists {
-					NSInQueue.Push(newIP)
+					NSInQueue = append(NSInQueue, newIP)
 					visitedNS[newIP] = true
 				}
 			}
 		}
 
-		// Need to resolve name server's ip address to continue.
+		// Resolve the NS data
 		if len(NSInQueue) == 0 && len(authorityRecords) > 0 {
 			fmt.Println("Name Server IP.")
 			_, nameServer, err := HandleDNSRequest(string(authorityRecords[0].Data), "8.8.8.8")
 			if err != nil {
 				return nil, "", err
 			}
-			NSInQueue.Push(nameServer)
+			NSInQueue = append(NSInQueue, nameServer)
 		}
 
 	}
-	return nil, "", fmt.Errorf("failed to resolve this domain name.")
+	return nil, "", fmt.Errorf("failed to resolve this domain name")
 
 }
