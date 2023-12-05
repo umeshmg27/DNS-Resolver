@@ -147,6 +147,6 @@ func HandleDNSRequest(domainName string, answerRecordData []string, nameServer s
 	if len(answerRecordData) > 0 {
 		return answerRecordData, answerRecordData[0], nil
 	}
-	return nil, "", fmt.Errorf("failed to resolve this domain name")
+	return nil, "", fmt.Errorf(" Failed to resolve Domain Name")
 
 }
